@@ -17,6 +17,7 @@ import {
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
+import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 import {
   CONTAINER_RUNTIME_BIN,
@@ -67,15 +68,12 @@ function buildVolumeMounts(
   const groupDir = resolveGroupFolderPath(group.folder);
 
   if (isMain) {
-    // Main gets the project root read-only. Writable paths the agent needs
-    // (group folder, IPC, .claude/) are mounted separately below.
-    // Read-only prevents the agent from modifying host application code
-    // (src/, dist/, package.json, etc.) which would bypass the sandbox
-    // entirely on next restart.
+    // Main gets the project root mounted so coding agents (Droid) can operate
+    // on the repo. Secrets are still protected by shadowing .env below.
     mounts.push({
       hostPath: projectRoot,
       containerPath: '/workspace/project',
-      readonly: true,
+      readonly: false,
     });
 
     // Shadow .env so the agent cannot read secrets from the mounted project root.
@@ -223,12 +221,35 @@ function buildVolumeMounts(
   return mounts;
 }
 
+function ensureAgentEnvFile(): string | null {
+  const env = readEnvFile(['GEMINI_API_KEY', 'FACTORY_AUTH_TOKEN']);
+
+  const gemini = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
+  const factory = process.env.FACTORY_AUTH_TOKEN || env.FACTORY_AUTH_TOKEN;
+
+  const lines: string[] = [];
+  if (gemini) lines.push(`GEMINI_API_KEY=${gemini}`);
+  if (factory) lines.push(`FACTORY_AUTH_TOKEN=${factory}`);
+  if (lines.length === 0) return null;
+
+  const dir = path.join(DATA_DIR, 'env');
+  const filePath = path.join(dir, 'agent.env');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(filePath, lines.join('\n') + '\n', { mode: 0o600 });
+  return filePath;
+}
+
 async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   agentIdentifier?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
+
+  const envFile = ensureAgentEnvFile();
+  if (envFile) {
+    args.push('--env-file', envFile);
+  }
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);

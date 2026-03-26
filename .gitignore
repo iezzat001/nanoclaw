@@ -35,4 +35,9 @@ groups/global/*
 # Skills system (local per-installation state)
 .nanoclaw/
 
+# Local helper scripts / tools
+/dispatch.sh
+/tools/
+/.claude/SKILL.md
+
 agents-sdk-docs

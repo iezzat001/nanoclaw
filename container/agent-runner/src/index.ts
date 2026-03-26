@@ -20,7 +20,7 @@ import { execFile } from 'child_process';
 import { query, HookCallback, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
-import { maybeHandleMikal } from './mikal/handler.js';
+import { MikalSession } from './mikal/session.js';
 
 interface ContainerInput {
   prompt: string;
@@ -578,20 +578,41 @@ async function main(): Promise<void> {
     prompt = `[SCHEDULED TASK]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${containerInput.prompt}`;
   }
 
-  // Mikal fast-path: deterministic slash commands + MemOS-backed memory helpers.
-  // (Keeps existing Claude Code query loop as fallback for everything else.)
+  // Mikal (Gemini + Droid orchestration) for interactive, non-scheduled chat.
   if (!containerInput.isScheduledTask) {
-    const mikal = maybeHandleMikal(prompt, {
+    const mikal = new MikalSession({
       assistantName: containerInput.assistantName,
     });
-    if (mikal.handled) {
+
+    try {
+      while (true) {
+        const out = await mikal.handlePrompt(prompt);
+        writeOutput({
+          status: 'success',
+          result: out ?? null,
+          newSessionId: sessionId,
+        });
+
+        const nextMessage = await waitForIpcMessage();
+        if (nextMessage === null) {
+          log('Close sentinel received, exiting');
+          break;
+        }
+        prompt = nextMessage;
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log(`Mikal loop error: ${errorMessage}`);
       writeOutput({
-        status: 'success',
-        result: mikal.output ?? null,
+        status: 'error',
+        result: null,
         newSessionId: sessionId,
+        error: errorMessage,
       });
-      return;
+      process.exit(1);
     }
+
+    return;
   }
 
   // Query loop: run query → wait for IPC message → run new query → repeat
