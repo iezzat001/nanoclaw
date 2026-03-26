@@ -20,6 +20,8 @@ import { execFile } from 'child_process';
 import { query, HookCallback, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
+import { maybeHandleMikal } from './mikal/handler.js';
+
 interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -574,6 +576,22 @@ async function main(): Promise<void> {
     // Script says wake agent — enrich prompt with script data
     log(`Script wakeAgent=true, enriching prompt with data`);
     prompt = `[SCHEDULED TASK]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${containerInput.prompt}`;
+  }
+
+  // Mikal fast-path: deterministic slash commands + MemOS-backed memory helpers.
+  // (Keeps existing Claude Code query loop as fallback for everything else.)
+  if (!containerInput.isScheduledTask) {
+    const mikal = maybeHandleMikal(prompt, {
+      assistantName: containerInput.assistantName,
+    });
+    if (mikal.handled) {
+      writeOutput({
+        status: 'success',
+        result: mikal.output ?? null,
+        newSessionId: sessionId,
+      });
+      return;
+    }
   }
 
   // Query loop: run query → wait for IPC message → run new query → repeat
