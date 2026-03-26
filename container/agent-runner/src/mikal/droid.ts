@@ -1,4 +1,9 @@
+import path from 'node:path';
 import { spawn } from 'node:child_process';
+
+import { validateOutput } from './hallbayes.js';
+import { compileContext } from './rlmgw.js';
+import { loadSkills } from './superpowers.js';
 
 export const DROID_MODEL_MAP = {
   code: 'gpt-5.1-codex-max',
@@ -19,13 +24,27 @@ export interface DroidExecOptions {
 }
 
 export async function runDroidExec(opts: DroidExecOptions): Promise<string> {
+  const skills = loadSkills();
+  const context = await compileContext(opts.prompt, opts.cwd);
+
+  const promptParts: string[] = [];
+  const skillsSection = skills.trim();
+  if (skillsSection) promptParts.push(`SUPERPOWERS:\n${skillsSection}`);
+
+  const contextSection = context.trim();
+  if (contextSection) promptParts.push(`PROJECT CONTEXT:\n${contextSection}`);
+
+  promptParts.push(`TASK:\n${opts.prompt}`);
+
+  const enrichedPrompt = promptParts.join('\n\n');
+
   const args = [
     'exec',
     '--auto',
     opts.auto ?? 'high',
     '--model',
     opts.model,
-    opts.prompt,
+    enrichedPrompt,
     '--cwd',
     opts.cwd,
   ];
@@ -65,7 +84,14 @@ export async function runDroidExec(opts: DroidExecOptions): Promise<string> {
       clearTimeout(timer);
       const output = combined.trim();
       if (code === 0) {
-        resolve(output || '(droid produced no output)');
+        let finalOutput = output || '(droid produced no output)';
+
+        const validation = validateOutput(finalOutput, path.join(opts.cwd, 'package.json'));
+        if (!validation.passed && validation.warning) {
+          finalOutput = `${finalOutput}\n\n[hallbayes] ${validation.warning}`;
+        }
+
+        resolve(finalOutput);
         return;
       }
 

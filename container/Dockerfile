@@ -30,6 +30,11 @@ RUN apt-get update && apt-get install -y \
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
+RUN apt-get update && apt-get install -y python3 --no-install-recommends && rm -rf /var/lib/apt/lists/*
+COPY tools/rlmgw /tools/rlmgw
+COPY tools/hallbayes /tools/hallbayes
+COPY tools/superpowers /tools/superpowers
+
 # Install agent-browser, claude-code, and Factory droid CLI globally
 RUN npm install -g agent-browser @anthropic-ai/claude-code @factory/cli
 
