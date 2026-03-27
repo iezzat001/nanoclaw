@@ -224,6 +224,5 @@ export class MemOS {
 }
 
 export function defaultMemOSDbPath(): string {
-  const home = process.env.HOME || '/home/node';
-  return path.join(home, '.claude', 'mikal', 'memos.sqlite');
+  return '/workspace/mikal-memos.sqlite';
 }
